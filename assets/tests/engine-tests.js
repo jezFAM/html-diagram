@@ -46,4 +46,28 @@ await page.mouse.move(nb.x+nb.width/2,nb.y+nb.height/2); await page.mouse.down({
 for(let i=1;i<=6;i++) await page.mouse.move(nb.x+nb.width/2+i*10,nb.y+nb.height/2);
 await page.mouse.up({button:'right'}); await sleep(150); await page.keyboard.press('Escape');
 const a9=await page.evaluate(()=>document.getElementById('a').offsetLeft); ok('T9_right_click_no_drag', b9===a9, b9+'->'+a9);
+// ---- T12~T15: 배포용 정적 내보내기(편집기 제거) ----
+await openTab(BASE+'demo-built.html'); await page.reload(); await sleep(800);
+const ex=await page.evaluate(()=>{ if(!window.FigEditor||typeof FigEditor.exportStatic!=='function') return null; const h=FigEditor.exportStatic(); return {h, edges:document.querySelectorAll('.fig-edge').length, labels:[...document.querySelectorAll('.fig-elabel')].filter(l=>l.style.display!=='none').map(l=>l.textContent)}; });
+ok('T12_exportStatic_exists', !!ex, ex?'ok':'FigEditor.exportStatic 없음');
+if(ex){
+  const h=ex.h;
+  const noEngine=!h.includes('fig-editor.js: 편집 가능한')&&!h.includes('id="fig-editor-css"')&&!h.includes('fig-history')&&!h.includes('data-fig-doc')&&!h.includes('figPill')&&!h.includes('figDock');
+  const svgG=(h.match(/<g[\s>]/g)||[]).length, dataUi=(h.match(/data-fig-ui/g)||[]).length, edgeDivs=(h.match(/class="fig-edge"/g)||[]).length;
+  ok('T13_export_clean_and_baked', noEngine&&h.includes('class="fig-edges"')&&svgG>=ex.edges&&dataUi===0&&ex.labels.every(t=>h.includes(t))&&edgeDivs===ex.edges, JSON.stringify({noEngine,svgG,edges:ex.edges,dataUi,edgeDivs}));
+  await openTab('about:blank'); await page.evaluate(html=>{ document.open(); document.write(html); document.close(); }, h); await sleep(800);
+  const st=await page.evaluate(()=>({ staticViewer:!!(window.FigEditor&&window.FigEditor.static), pill:!!document.getElementById('figPill'), paths:document.querySelectorAll('.fig-edges path.fe-main[d]').length, labels:document.querySelectorAll('.fig-elabel').length, nodeAbs:getComputedStyle(document.querySelector('.fig-node')).position, hub:document.getElementById('n-hub').offsetLeft, scaled:!!document.querySelector('.fig-scale') }));
+  ok('T14_static_renders_without_editor', st.paths>=4&&!st.pill&&st.nodeAbs==='absolute'&&st.hub===481&&st.staticViewer&&st.scaled, JSON.stringify(st));
+}
+await openTab(BASE+'demo-built.html'); await page.reload(); await sleep(800);
+const dl=await page.evaluate(async()=>{ window.showSaveFilePicker=undefined; let blob=null; URL.createObjectURL=b=>{ blob=b; return 'blob:stub'; }; HTMLAnchorElement.prototype.click=function(){}; const btn=document.getElementById('figExportM'); if(!btn) return {btn:false}; btn.click(); await new Promise(r=>setTimeout(r,400)); const txt=blob?await blob.text():''; return {btn:true,len:txt.length,clean:!txt.includes('fig-editor.js: 편집 가능한')&&txt.includes('class="fig-edges"')}; });
+ok('T15_export_menu_downloads_static', dl.btn&&dl.clean&&dl.len>1000, JSON.stringify(dl));
+// ---- T16: 배포본 내보내기 때 높이 미지정 노드의 실제 높이를 인라인으로 굳힌다 ----
+await openTab(BASE+'test-edges.html'); await page.reload(); await sleep(700);
+const fz=await page.evaluate(()=>{ const h=FigEditor.exportStatic(); const live=document.getElementById('f'); const m=h.match(/id="f"[^>]*style="([^"]*)"/); return {liveH:live.offsetHeight, hadInline:!!live.style.height, style:m?m[1]:null}; });
+ok('T16_export_freezes_auto_height', !fz.hadInline&&fz.style&&new RegExp('height:\\s*'+fz.liveH+'px').test(fz.style), JSON.stringify(fz));
+// ---- T17: 아티팩트 런타임(claude.use('artifact'))이 있으면 ⌘S가 파일 대신 새 버전을 발행한다 ----
+await openTab(BASE+'demo-built.html'); await page.reload(); await sleep(800);
+const ar=await page.evaluate(async()=>{ window.__pub=null; window.__picker=0; window.showSaveFilePicker=function(){ window.__picker++; throw new Error('picker should not be used'); }; window.claude={use:function(name){ return Promise.resolve(name==='artifact'?{publish:function(html){ window.__pub=html; return Promise.resolve(); }}:null); }}; FigEditor.setEdit(true); document.getElementById('n-hospital').style.left='30px'; FigEditor.commit(); await FigEditor.save(false); await new Promise(r=>setTimeout(r,300)); const h=window.__pub||''; return {published:!!window.__pub, picker:window.__picker, doctype:h.startsWith('<!DOCTYPE html>'), engine:h.includes('fig-editor.js: 편집 가능한'), moved:/id="n-hospital"[^>]*left:\s*30px/.test(h), clean:!/<body[^>]*fig-editing/.test(h)&&!h.includes('class="fig-dock"')&&!h.includes('class="fig-pill"')}; });
+ok('T17_artifact_publish_on_save', ar.published&&ar.picker===0&&ar.doctype&&ar.engine&&ar.moved&&ar.clean, JSON.stringify(ar));
 const passed=Object.values(R).filter(r=>r.pass).length; console.log('RESULT', passed+'/'+Object.keys(R).length, JSON.stringify(R,null,1));

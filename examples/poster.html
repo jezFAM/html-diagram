@@ -101,6 +101,7 @@ h1 .g{background:linear-gradient(90deg,var(--blue),var(--indigo));-webkit-backgr
 <style id="fig-editor-css">
 /* ================================================================
    fig-editor.css: 편집 가능한 HTML 도식 공용 엔진 스타일
+   Copyright (c) 2026 Jeon SukHwan (tonywjs). MIT License. https://github.com/tonywjs/html-diagram
    (문서에 인라인 삽입. 규약: .fig-canvas / .fig-node / .fig-edge)
    ================================================================ */
 
@@ -473,6 +474,8 @@ body:not(.fig-editing) .fig-h,body:not(.fig-editing) .fig-ep,body:not(.fig-editi
 <script>
 /* ================================================================
    fig-editor.js: 편집 가능한 HTML 도식 공용 엔진
+   Copyright (c) 2026 Jeon SukHwan (tonywjs). MIT License. https://github.com/tonywjs/html-diagram
+   이 주석은 엔진이 인라인된 모든 산출물에 함께 실린다(MIT의 저작권 표시 조건).
    규약: .fig-canvas[data-size="WxH"] > .fig-node(절대배치) + .fig-edge(데이터)
    - 보기 모드가 기본. 모든 편집은 편집 모드(⌘E)에서만 동작한다.
    - 저장: 같은 파일 덮어쓰기(File System Access API) + 히스토리 + 자동저장.
@@ -558,7 +561,10 @@ function initCanvases(){
       var w=document.createElement('div'); w.className='fig-scale';
       cv.parentNode.insertBefore(w,cv); w.appendChild(cv);
     }
-    if(!$('.fig-edges',cv)){
+    var baked=$('.fig-edges',cv);
+    if(baked&&!baked.hasAttribute('data-fig-ui')){ baked.remove(); baked=null; }   /* 배포본에 구워진 SVG는 버리고 새로 그린다 */
+    $$('.fig-elabel:not([data-fig-ui])',cv).forEach(function(l){ l.remove(); });
+    if(!baked){
       var svg=document.createElementNS(SVGNS,'svg');
       svg.setAttribute('class','fig-edges'); svg.setAttribute('data-fig-ui','');
       svg.setAttribute('viewBox','0 0 '+s.w+' '+s.h);
@@ -1258,6 +1264,7 @@ function serializeSelection(){
     c.removeAttribute('contenteditable');
     Array.prototype.forEach.call(c.querySelectorAll('[contenteditable]'),function(el){ el.removeAttribute('contenteditable'); });
     Array.prototype.forEach.call(c.querySelectorAll('[data-fig-ui]'),function(el){ el.remove(); });
+    runCleaners(c);
     payload.nodes.push({id:n.id,html:c.outerHTML});
   });
   edges.forEach(function(e){
@@ -1675,6 +1682,7 @@ function mountUI(){
     '<div class="fig-menu" id="figMenu">'+
       '<button id="figSaveM">저장&nbsp;&nbsp;⌘S</button>'+
       '<button id="figSaveAsM">다른 이름으로 저장</button>'+
+      '<button id="figExportM">배포용으로 저장 (편집기 제거)</button>'+
       '<button id="figHistoryM">저장 히스토리</button></div>';
   body.appendChild(pill);
   /* 편집 모드: 통합 도크 */
@@ -1692,7 +1700,8 @@ function mountUI(){
         '<button class="fd-b sq" id="figRedo" title="다시 실행 ⇧⌘Z">↪︎</button>'+
         '<button class="fd-b primary" id="figSave">저장 ⌘S</button></div>'+
       '<div class="fd-row"><button class="fd-b" id="figSaveAs">다른 이름</button>'+
-        '<button class="fd-b" id="figHistory">히스토리</button></div></div>';
+        '<button class="fd-b" id="figHistory">히스토리</button></div>'+
+      '<div class="fd-row"><button class="fd-b" id="figExport" title="편집기를 걷어낸 정적 HTML로 저장">배포용 저장</button></div></div>';
   body.appendChild(dock);
   var to=document.createElement('div'); to.className='fig-toast'; to.id='figToast'; to.setAttribute('data-fig-ui',''); body.appendChild(to);
   var bn=document.createElement('div'); bn.className='fig-banner'; bn.id='figBanner'; bn.setAttribute('data-fig-ui','');
@@ -1713,6 +1722,8 @@ function mountUI(){
   menuAct('#figSaveM',function(){ saveToFile(false); });
   menuAct('#figSaveAsM',function(){ saveToFile(true); });
   menuAct('#figHistoryM',openHistory);
+  menuAct('#figExportM',saveStaticToFile);
+  $('#figExport').addEventListener('click',saveStaticToFile);
   $('#figSave').addEventListener('click',function(){ saveToFile(false); });
   $('#figSaveAs').addEventListener('click',function(){ saveToFile(true); });
   $('#figHistory').addEventListener('click',openHistory);
@@ -1727,6 +1738,10 @@ function mountUI(){
 /* ================================================================
    스냅샷 · Undo/Redo
    ================================================================ */
+/* 정리 훅: 같은 문서의 다른 런타임(html-deck 등)이 저장·undo 스냅샷·배포본·클립보드에서
+   자기 상태(장면 클래스, 카메라, 맞춤 스타일)를 걷어내도록 등록한다. FigEditor.onClean(fn), fn(루트 요소) */
+var cleaners=[];
+function runCleaners(root){ cleaners.forEach(function(fn){ try{ fn(root); }catch(e){} }); }
 function cleanBodyHTML(){
   var c=body.cloneNode(true);
   $$('[data-fig-ui]',c).forEach(function(el){ el.remove(); });
@@ -1740,6 +1755,7 @@ function cleanBodyHTML(){
   });
   $$('[contenteditable]',c).forEach(function(el){ el.removeAttribute('contenteditable'); });
   c.classList.remove('fig-editing');
+  runCleaners(c);
   return c.innerHTML;
 }
 /* Paste, saved history, autosave and undo share the same inert fragment policy. */
@@ -1816,6 +1832,7 @@ function serialize(){
     });
     Array.prototype.slice.call(b.querySelectorAll('[contenteditable]')).forEach(function(el){ el.removeAttribute('contenteditable'); });
     b.classList.remove('fig-editing');
+    runCleaners(b);
   }
   return '<!DOCTYPE html>\n'+clone.outerHTML;
 }
@@ -1823,9 +1840,10 @@ function suggestName(){
   var t=docTitle().replace(/[\\/:*?"<>|]/g,'').trim();
   return (t||'도식')+'.html';
 }
-function downloadHtml(html){
+function downloadHtml(html){ downloadHtmlAs(html,suggestName()); }
+function downloadHtmlAs(html,name){
   var blob=new Blob([html],{type:'text/html;charset=utf-8'});
-  var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=suggestName();
+  var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name;
   document.body.appendChild(a); a.click();
   setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },1200);
 }
@@ -1839,9 +1857,36 @@ function pushHistoryIfChanged(){
   }
 }
 async function writeSerialized(handle){ var w=await handle.createWritable(); await w.write(serialize()); await w.close(); }
+/* 클로드 아티팩트 안에서 열린 경우: 페이지가 자기 새 버전을 발행하는 런타임(claude.use('artifact'))이 있으면 파일 대신 그쪽으로 저장한다.
+   일반 브라우저에는 window.claude가 없으므로 즉시 null. 결과는 한 번만 확인해 둔다 */
+var artifactNs;
+function artifactApi(){
+  if(artifactNs!==undefined) return Promise.resolve(artifactNs);
+  if(!(window.claude&&typeof window.claude.use==='function')){ artifactNs=null; return Promise.resolve(null); }
+  return Promise.resolve().then(function(){ return window.claude.use('artifact'); })
+    .then(function(ns){ artifactNs=(ns&&typeof ns.publish==='function')?ns:null; return artifactNs; })
+    .catch(function(){ artifactNs=null; return null; });
+}
 async function saveToFile(forceNew){
   finishLabelEdit(); if(texting) stopTextEdit();
   /* 편집 모드를 껐다 켜지 않는다(선택·도크 유지). serialize()가 편집 흔적을 알아서 걷어낸다 */
+  var art=forceNew?null:await artifactApi();
+  if(art){
+    toast('아티팩트에 저장 중…');
+    try{
+      pushHistoryIfChanged();
+      await art.publish(serialize());          /* 새 버전 발행. 열어 둔 모든 화면이 이 버전으로 다시 열린다 */
+      lastSavedHtml=snapshotForHistory();
+      try{ localStorage.removeItem(autosaveKey()); }catch(e){}
+      toast('아티팩트에 새 버전으로 저장했습니다');
+    }catch(err){
+      var code=String((err&&(err.code||err.name))||'');
+      if(/not_writer|not_granted/i.test(code)) toast('이 아티팩트에 편집 권한이 없어 저장할 수 없습니다');
+      else if(/conflict/i.test(code)) toast('다른 사람이 먼저 저장해 최신 버전으로 다시 열립니다');
+      else toast('아티팩트 저장 실패'+(code?' ('+code+')':''));
+    }
+    return;
+  }
   if(!window.showSaveFilePicker){
     pushHistoryIfChanged(); downloadHtml(serialize()); lastSavedHtml=snapshotForHistory();
     toast('다운로드로 저장했습니다 (이 브라우저는 같은 파일 덮어쓰기 미지원)'); return;
@@ -1878,6 +1923,103 @@ async function saveToFile(forceNew){
     if(err&&err.name==='AbortError') return;   /* 사용자가 대화상자 취소 */
     pushHistoryIfChanged(); downloadHtml(serialize()); lastSavedHtml=snapshotForHistory();
     toast('파일 저장 실패. 다운로드로 대체했습니다'+(note?' ('+note+')':''));
+  }
+}
+/* ================================================================
+   배포용 정적 내보내기: 엔진·편집 UI를 걷어내고, 엔진이 그린 화살표 SVG와 라벨을 문서에 굽는다.
+   결과물은 편집이 안 되는 대신 어떤 환경에서도 그대로 보이는 HTML 한 파일이다.
+   ================================================================ */
+var STATIC_CSS=
+'/* fig-static: 배포본 최소 스타일. fig-editor.css의 규약 부분과 같게 유지한다 */\n'+
+'.fig-scale{position:relative;overflow:visible}\n'+
+'.fig-canvas{position:relative;transform-origin:0 0}\n'+
+'.fig-node{position:absolute;box-sizing:border-box}\n'+
+'.fig-node *{box-sizing:border-box}\n'+
+'.fig-edge{display:none}\n'+
+'.fig-edges{position:absolute;left:0;top:0;width:100%;height:100%;overflow:visible;pointer-events:none;z-index:5}\n'+
+'.fig-elabel{position:absolute;z-index:6;font-size:12px;font-weight:700;padding:2px 8px;border-radius:12px;'+
+'background:rgba(255,255,255,.94);box-shadow:0 1px 4px rgba(15,23,42,.14);white-space:nowrap;transform:translate(-50%,-50%);pointer-events:none}\n'+
+'@keyframes figFlow{to{stroke-dashoffset:-28}}\n'+
+'.fig-edges g.fig-flow .fe-main{stroke-dasharray:7 7 !important;animation:figFlow 1.05s linear infinite}\n';
+var STATIC_JS=
+'/* fig-static: 창 폭에 맞춰 캔버스를 축소하는 뷰어. 편집 기능은 없다 */\n'+
+'(function(){\n'+
+'function fit(){Array.prototype.forEach.call(document.querySelectorAll(".fig-canvas"),function(cv){'+
+'var m=(cv.getAttribute("data-size")||"").match(/^\\s*(\\d+)\\s*[x\\u00d7]\\s*(\\d+)/i);'+
+'var w=m?+m[1]:cv.offsetWidth,h=m?+m[2]:cv.offsetHeight;cv.style.width=w+"px";cv.style.height=h+"px";'+
+'var wrap=cv.parentElement;if(!wrap.classList.contains("fig-scale")){var d=document.createElement("div");d.className="fig-scale";cv.parentNode.insertBefore(d,cv);d.appendChild(cv);wrap=d;}'+
+'var sc=Math.min(1,(wrap.clientWidth||w)/w);cv.style.transform=sc<1?"scale("+sc+")":"";wrap.style.height=(h*sc)+"px";});}\n'+
+'window.addEventListener("resize",fit);if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",fit);else fit();\n'+
+'var noop=function(){};\n'+
+'/* html-deck 런타임 등이 부르는 편집 API는 빈 함수로 둔다 */\n'+
+'window.FigEditor=window.FigEditor||{static:true,fitAll:fit,renderAll:noop,setEdit:noop,onClean:noop,isEditing:function(){return false},'+
+'selection:function(){return []},select:noop,clearSelection:noop,commit:noop,toast:noop,save:noop,'+
+'serialize:function(){return "<!DOCTYPE html>\\n"+document.documentElement.outerHTML},clean:function(){return document.body.innerHTML}};\n'+
+'})();\n';
+var ENGINE_MARK='fig-editor.js: 편집 가능한 HTML 도식 공용 엔진';
+function exportStatic(){
+  finishLabelEdit(); if(texting) stopTextEdit();
+  /* 숨겨진 컨테이너(덱의 비활성 슬라이드, 탭 등) 안의 캔버스는 크기가 0으로 측정돼 화살표가 한 점으로 구워지고
+     높이가 0으로 굳는다. 굽는 동안만 조상을 펼치고, 복제본과 원본 모두 원래대로 되돌린다 */
+  var shown=[];
+  canvases().forEach(function(cv){
+    var a=cv.parentElement;
+    while(a&&a!==body){
+      if(getComputedStyle(a).display==='none'&&!a.hasAttribute('data-fig-shown')){
+        shown.push([a,a.style.display]); a.setAttribute('data-fig-shown',a.style.display||''); a.style.display='block';
+      }
+      a=a.parentElement;
+    }
+  });
+  renderAll();
+  var clone=document.documentElement.cloneNode(true);
+  var head=clone.querySelector('head'), b=clone.querySelector('body');
+  /* 높이를 지정하지 않은 노드는 지금 그려진 높이를 인라인으로 굳힌다. 구워진 화살표 좌표와 박스가 글꼴 환경에 관계없이 맞도록 */
+  var liveNodes=$$('.fig-node'), cloneNodes=Array.prototype.slice.call(clone.querySelectorAll('.fig-node'));
+  liveNodes.forEach(function(n,i){ var c=cloneNodes[i]; if(c&&!n.style.height&&n.offsetHeight>0) c.style.height=n.offsetHeight+'px'; });
+  Array.prototype.slice.call(clone.querySelectorAll('[data-fig-shown]')).forEach(function(el){
+    var v=el.getAttribute('data-fig-shown'); if(v) el.style.display=v; else el.style.removeProperty('display');
+    if(!el.getAttribute('style')) el.removeAttribute('style'); el.removeAttribute('data-fig-shown');
+  });
+  shown.forEach(function(pr){ pr[0].style.display=pr[1]; pr[0].removeAttribute('data-fig-shown'); });
+  Array.prototype.slice.call(clone.querySelectorAll('#fig-editor-css,#fig-static-css,#fig-static-js')).forEach(function(el){ el.remove(); });
+  Array.prototype.slice.call(clone.querySelectorAll('script')).forEach(function(s){
+    /* 엔진과 히스토리만 제거한다. 문서(또는 덱 런타임)의 다른 스크립트는 남긴다 */
+    if(s.id==='fig-history'||(s.textContent||'').indexOf(ENGINE_MARK)>=0) s.remove();
+  });
+  if(b){
+    Array.prototype.slice.call(b.querySelectorAll('[data-fig-ui]')).forEach(function(el){
+      if(el.classList.contains('fig-edges')||el.classList.contains('fig-elabel')){ el.removeAttribute('data-fig-ui'); return; }   /* 화살표·라벨은 굽는다 */
+      el.remove();   /* 도크·필·핸들·가이드·토스트·배너·모달·클립보드 브리지 */
+    });
+    Array.prototype.slice.call(b.querySelectorAll('.fig-edges .fe-hit')).forEach(function(el){ el.remove(); });
+    Array.prototype.slice.call(b.querySelectorAll('.fig-edges [filter]')).forEach(function(el){ el.removeAttribute('filter'); });
+    Array.prototype.slice.call(b.querySelectorAll('.fig-scale')).forEach(function(w){
+      var cv=w.querySelector('.fig-canvas');
+      if(cv){ cv.style.transform=''; w.parentNode.replaceChild(cv,w); } else w.remove();
+    });
+    Array.prototype.slice.call(b.querySelectorAll('.fig-selected,.fig-texting,.fig-dragging,.fig-snaptarget')).forEach(function(el){
+      el.classList.remove('fig-selected','fig-texting','fig-dragging','fig-snaptarget');
+    });
+    Array.prototype.slice.call(b.querySelectorAll('[contenteditable]')).forEach(function(el){ el.removeAttribute('contenteditable'); });
+    b.classList.remove('fig-editing'); runCleaners(b); if(!b.className) b.removeAttribute('class');
+    b.removeAttribute('data-fig-doc');
+    var js=document.createElement('script'); js.id='fig-static-js'; js.textContent=STATIC_JS; b.appendChild(js);
+  }
+  if(head){ var st=document.createElement('style'); st.id='fig-static-css'; st.textContent=STATIC_CSS; head.appendChild(st); }
+  return '<!DOCTYPE html>\n'+clone.outerHTML;
+}
+function staticName(){ return (docTitle().replace(/[\\/:*?"<>|]/g,'').trim()||'도식')+' 배포용.html'; }
+async function saveStaticToFile(){
+  var html=exportStatic(), name=staticName();
+  if(!window.showSaveFilePicker){ downloadHtmlAs(html,name); toast('배포용 파일을 다운로드했습니다 (편집기 제거)'); return; }
+  try{
+    var h=await window.showSaveFilePicker({suggestedName:name,types:[{description:'HTML 문서',accept:{'text/html':['.html','.htm']}}]});
+    var w=await h.createWritable(); await w.write(html); await w.close();
+    toast('배포용으로 저장했습니다 · '+h.name+' (편집기 제거. 원본은 그대로)');
+  }catch(err){
+    if(err&&err.name==='AbortError') return;
+    downloadHtmlAs(html,name); toast('파일 저장 실패. 다운로드로 대체했습니다');
   }
 }
 /* 히스토리 모달 */
@@ -2023,6 +2165,7 @@ document.addEventListener('dragstart',function(e){ if(editing) e.preventDefault(
    초기화
    ================================================================ */
 function init(){
+  $$('#fig-static-css,#fig-static-js').forEach(function(el){ el.remove(); });   /* 배포본에 엔진을 다시 넣은 경우 뷰어 잔재 제거 */
   if(!body.dataset.figDoc) body.dataset.figDoc=defaultDocId();
   bodyScripts=$$('body script').filter(function(s){ return s.id!=='fig-history'; });
   histArr=loadHistory();
@@ -2052,7 +2195,10 @@ window.FigEditor={
   select:function(el){ if(el) select(el,false); },
   clearSelection:clearSelection,
   history:function(){ return histArr.slice(); },
-  toast:toast
+  exportStatic:exportStatic,
+  saveStatic:saveStaticToFile,
+  toast:toast,
+  onClean:function(fn){ if(typeof fn==='function') cleaners.push(fn); }
 };
 })();
 

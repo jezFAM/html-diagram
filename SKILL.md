@@ -5,7 +5,7 @@ description: Use when 도식·다이어그램·인포그래픽·구조도·개�
 
 # html-diagram: 편집 가능한 HTML 도식
 
-**문서 자체가 에디터다.** 아래 규약대로 만들면 문서에 인라인된 엔진이 보기 모드(기본, 완전 정적)와 편집 모드(⌘E)를 제공한다: 도형 드래그·복제·복사/붙여넣기(다른 문서로도)·삭제·생성, 화살표 끝점·곡률·라벨 편집, 속성 패널, undo, 같은 파일 저장(⌘S)+히스토리+자동저장, 더블클릭 리치 서식 툴바. 전체 기능은 `examples/poster-src.html` 한 장이 보여 준다.
+**문서 자체가 에디터다.** 아래 규약대로 만들면 문서에 인라인된 엔진이 보기 모드(기본, 완전 정적)와 편집 모드(⌘E)를 제공한다: 도형 드래그·복제·복사/붙여넣기(다른 문서로도)·삭제·생성, 화살표 끝점·곡률·라벨 편집, 속성 패널, undo, 같은 파일 저장(⌘S)+히스토리+자동저장, 더블클릭 리치 서식 툴바, 편집기를 걷어낸 배포용 저장. 전체 기능은 `examples/poster-src.html` 한 장이 보여 준다.
 
 ## 생성 워크플로
 
@@ -14,6 +14,7 @@ description: Use when 도식·다이어그램·인포그래픽·구조도·개�
 3. 작성하는 곳은 셋뿐이다: `<title>`(기본값 "도식"을 반드시 교체), head의 첫 `<style>`(문서 스타일), `FIG:CONTENT` 영역(캔버스 + 노드/엣지).
 4. 브라우저에서 검증한다: ① 콘솔 오류·경고 0 ② 품질 스니펫 `pass:true` ③ 편집 모드에서 노드를 끌면 화살표가 따라옴.
 5. 검증 통과 전에는 완성으로 선언하지 않는다.
+6. 배포본이 필요하면 편집기 메뉴(⋯)의 **배포용으로 저장** 또는 `python3 <스킬 폴더>/assets/export-static.py 산출.html 배포.html`(헤드리스 Chrome 필요)로 엔진을 걷어낸 정적 HTML을 따로 만든다. 배포본은 화살표가 구워져 어디서나 보이지만 편집은 안 되므로 원본을 함께 보관한다.
 
 **검증 방법.** Aside 브라우저는 file:// 을 열지 못하므로 산출 폴더를 로컬 HTTP로 띄운 뒤 `http://127.0.0.1:8765/파일.html`로 연다(포트가 사용 중이면 다른 포트). 스니펫은 Aside repl의 `page.evaluate`, 내장 Browser의 `javascript_tool`, 또는 콘솔에서 실행한다. 콘솔 오류·경고는 Aside repl이 캡처하지 못하므로 내장 Browser 패널의 `read_console_messages`로 확인한다(폴백 사유를 한 줄로 알릴 것). 드래그 검증은 `FigEditor.setEdit(true)` 후 노드 중앙을 마우스로 끌어 연결된 `.fig-edge` 요소의 `_geom.p0/p1`이 바뀌는지 보고 `FigEditor.setEdit(false)`로 돌아온다. 끝점을 못 찾은 엣지는 `_warned`가 true다. 브라우저 도구가 없는 환경(Codex CLI 등)에서는 `python3 <스킬 폴더>/assets/static-check.py 산출.html`로 정적 검사까지만 하고, 브라우저 검증은 수행하지 못했다고 보고한다.
 
@@ -49,7 +50,7 @@ python3 -m http.server 8765 --bind 127.0.0.1 --directory <산출 폴더>
 | 항목 | 규칙 |
 |---|---|
 | `.fig-canvas` | `data-size="WxH"` 필수. 고정 픽셀 좌표계(표시 축소는 엔진이 처리). 한 문서에 여러 캔버스 가능, 캔버스 사이 화살표는 불가 |
-| `.fig-node` | `id` 필수(전 문서 유일), 인라인 style로 `left/top/width` 필수(`height`는 선택). 내부 HTML 자유 |
+| `.fig-node` | `id` 필수(전 문서 유일), 인라인 style로 `left/top/width` 필수. `height`는 선택이지만 **화살표가 붙는 노드는 지정한다**(글꼴 환경이 달라도 끝점이 같은 자리에 오도록). 배포본 내보내기 때 미지정 높이는 그 시점 값으로 굳는다. 내부 HTML 자유 |
 | 투명 노드 | 라벨·캡션·섹션 제목도 노드로: `background:transparent;border:none` |
 | `.fig-edge` | 빈 div. `data-from`/`data-to` = **노드 id 또는 "x,y"**. 없는 id를 가리키면 표시되지 않고 콘솔 경고가 난다. 옵션: `data-style`(solid\|dashed\|dotted), `data-width`, `data-color`(hex, rgb, CSS 변수 모두 가능), `data-curve`(-1~1, 양수는 진행 방향 기준 오른쪽으로 휨. 가로 화살표면 아래), `data-arrow`(end\|both\|none), `data-label`(곡선 중앙에 놓임), `data-opacity`(0~1), `data-anchor-from/to`(auto\|top\|bottom\|left\|right\|**"fx,fy" 0~1 비율 고정점**), `data-flow="on"`(움직이는 점선 흐름 애니메이션) |
 | 양방향 화살표 | 같은 두 노드 사이에 왕복 화살표를 둘 땐 반드시 **앵커를 다르게** 지정한다(auto 둘이면 같은 점에 겹침). 곡률은 진행 방향 기준이므로 왕복 두 화살표에 **같은 부호**를 주면 서로 반대쪽으로 휜다. 예: 전송 `data-anchor-to="0.3,1"` / 배포 `data-anchor-from="0.7,1"` + 같은 곡률 값 |
