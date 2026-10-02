@@ -21,6 +21,36 @@ function toast(t){ var el=$('#figToast'); if(!el) return; el.textContent=t; el.c
   clearTimeout(el._t); el._t=setTimeout(function(){ el.classList.remove('show'); },2400); }
 var SVGNS='http://www.w3.org/2000/svg';
 
+/* template content stays inert even before resource attributes are removed. */
+function safeFragmentCSS(value){
+  var rest=value.replace(/url\(\s*(['"]?)#[^\s'"()\\<>]+\1\s*\)/gi,'');
+  return !/\\|\/\*|@|url\s*\(|(?:image(?:-set)?|src|expression)\s*\(|-moz-binding|behavior/i.test(rest);
+}
+function sanitizeFragment(html){
+  var t=document.createElement('template');
+  t.innerHTML=typeof html==='string'?html:'';
+  var tags=/^(?:div|span|p|br|hr|b|strong|i|em|u|s|strike|small|sub|sup|font|a|img|h[1-6]|ul|ol|li|dl|dt|dd|blockquote|pre|code|section|article|header|footer|main|nav|aside|figure|figcaption|details|summary|table|thead|tbody|tfoot|tr|td|th|caption|colgroup|col|svg|g|defs|symbol|use|path|rect|circle|ellipse|line|polyline|polygon|text|tspan|textpath|lineargradient|radialgradient|stop|clippath|mask|pattern|marker|title|desc)$/;
+  var attrs=/^(?:id|class|title|lang|dir|role|tabindex|alt|width|height|colspan|rowspan|scope|open|color|face|size|viewbox|preserveaspectratio|xmlns|d|x|y|x1|x2|y1|y2|cx|cy|r|rx|ry|dx|dy|points|transform|offset|fill(?:-opacity|-rule)?|stroke(?:-width|-opacity|-linecap|-linejoin|-dasharray|-dashoffset|-miterlimit)?|opacity|clip-path|clip-rule|mask|filter|marker-(?:start|mid|end|width|height)|markerunits|refx|refy|orient|gradientunits|gradienttransform|spreadmethod|patternunits|patterncontentunits|patterntransform|text-anchor|dominant-baseline|font-(?:size|family|weight|style)|stop-color|stop-opacity|aria-[\w-]+|data-[\w-]+)$/;
+  $$('*',t.content).forEach(function(el){
+    if(!tags.test(el.localName.toLowerCase()) || (el.namespaceURI!==SVGNS&&el.namespaceURI!=='http://www.w3.org/1999/xhtml')){ el.remove(); return; }
+    Array.prototype.slice.call(el.attributes).forEach(function(a){
+      var name=a.name.toLowerCase(), value=a.value;
+      if(name==='style'){
+        Array.prototype.slice.call(el.style).forEach(function(prop){
+          if(!safeFragmentCSS(el.style.getPropertyValue(prop))) el.style.removeProperty(prop);
+        });
+      } else if(name==='href'||name==='xlink:href'){
+        if(!/^#[^\s'"()\\<>]+$/.test(value)) el.removeAttribute(a.name);
+      } else if(name==='src'){
+        if(el.localName!=='img'||!/^data:image\/(?:png|jpeg|gif|webp);base64,[a-z\d+/=]+$/i.test(value)) el.removeAttribute(a.name);
+      } else if(!attrs.test(name)||((el.namespaceURI===SVGNS||name==='data-color')&&!safeFragmentCSS(value))){
+        el.removeAttribute(a.name);
+      }
+    });
+  });
+  return t.content;
+}
+
 /* ---------------- 상태 ---------------- */
 var editing=false, fileHandle=null;
 var selection=[];                 // .fig-node 요소 또는 .fig-edge 데이터 div
@@ -806,20 +836,31 @@ function pasteFromText(text){
   var cv=visiblePasteCanvas(); if(!cv) return false;
   if(lastPaste.text===text) lastPaste.count++; else lastPaste={text:text,count:1};
   var off=24*lastPaste.count;
-  var idMap={}, made=[], tmp=document.createElement('div');
+  var idMap=Object.create(null), made=[];
   (payload.nodes||[]).forEach(function(item){
-    tmp.innerHTML=item.html;
-    var n=tmp.firstElementChild;
+    var n=sanitizeFragment(item.html).firstElementChild;
     if(!n||!n.classList.contains('fig-node')) return;
     var newId=genId('n'); if(item.id) idMap[item.id]=newId;
+    if(n.id) idMap[n.id]=newId;
     n.id=newId;
+    $$('[id]',n).forEach(function(el){ var id=genId('n'); idMap[el.id]=id; el.id=id; });
     n.style.left=((parseFloat(n.style.left)||0)+off)+'px';
     n.style.top=((parseFloat(n.style.top)||0)+off)+'px';
-    cv.appendChild(n); made.push(n);
+    made.push(n);
+  });
+  made.forEach(function(n){
+    [n].concat($$('*',n)).forEach(function(el){
+      Array.prototype.slice.call(el.attributes).forEach(function(a){
+        var value=a.value;
+        if((a.name==='href'||a.name==='xlink:href')&&idMap[value.slice(1)]) value='#'+idMap[value.slice(1)];
+        value=value.replace(/url\(\s*(['"]?)#([^\s'"()\\<>]+)\1\s*\)/gi,function(ref,quote,id){ return idMap[id]?'url(#'+idMap[id]+')':ref; });
+        if(value!==a.value) el.setAttribute(a.name,value);
+      });
+    });
+    cv.appendChild(n);
   });
   (payload.edges||[]).forEach(function(item){
-    tmp.innerHTML=item.html;
-    var e=tmp.firstElementChild;
+    var e=sanitizeFragment(item.html).firstElementChild;
     if(!e||!e.classList.contains('fig-edge')) return;
     e.removeAttribute('id');
     var moved=0;
@@ -1228,16 +1269,14 @@ function cleanBodyHTML(){
   c.classList.remove('fig-editing');
   return c.innerHTML;
 }
-/* 스냅샷 정화: 예전 엔진이 남긴 script(엔진·히스토리)를 제거한다 */
+/* Paste, saved history, autosave and undo share the same inert fragment policy. */
 function sanitizeSnapshot(html){
-  if(!html||html.indexOf('<script')<0) return html;
-  var t=document.createElement('template'); t.innerHTML=html;
-  Array.prototype.slice.call(t.content.querySelectorAll('script')).forEach(function(s){ s.remove(); });
+  var t=document.createElement('template'); t.content.appendChild(sanitizeFragment(html));
   return t.innerHTML;
 }
 function restoreBody(html){
   finishLabelEdit(true); stopTextEdit(); selection=[];
-  body.innerHTML=sanitizeSnapshot(html);
+  body.replaceChildren(sanitizeFragment(html));
   bodyScripts.forEach(function(s){ body.appendChild(s); });   /* 이미 실행된 script 요소라 재실행 없이 DOM에만 복귀(저장 파일에 엔진이 남도록) */
   mountUI(); initCanvases(); renderAll();
   body.classList.toggle('fig-editing',editing);
@@ -1388,9 +1427,7 @@ function previewHistory(i){
   var btn=document.createElement('button'); btn.className='fd-done'; btn.textContent='이 버전으로 복원';
   btn.onclick=function(){ restoreFromHistory(i); };
   bar.appendChild(btn); pv.appendChild(bar);
-  var doc=document.createElement('div'); doc.className='fm-doc'; doc.innerHTML=h.html;
-  // 미리보기 안 스크립트/캔버스 크기 축소 표시
-  Array.prototype.slice.call(doc.querySelectorAll('script')).forEach(function(s){ s.remove(); });
+  var doc=document.createElement('div'); doc.className='fm-doc'; doc.appendChild(sanitizeFragment(h.html));
   pv.appendChild(doc);
 }
 function restoreFromHistory(i){
