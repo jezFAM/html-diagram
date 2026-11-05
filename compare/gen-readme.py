@@ -1,44 +1,87 @@
 #!/usr/bin/env python3
 """static.json + verify.json + console.json + meta.py → compare/README.md 전체와 루트 README.md의 결과 블록.
 스크린샷은 shots-jpg/*.jpg 를 참조한다(GitHub이 README 안의 이미지는 렌더하므로 index.html 대신 이걸 본다)."""
+
 import json, pathlib, re, sys
-here = pathlib.Path(__file__).parent; root = here.parent
+
+here = pathlib.Path(__file__).parent
+root = here.parent
 sys.path.insert(0, str(here))
 from meta import names, order, EFFORT, NOTES, CAVEAT
-S = json.loads((here / 'static.json').read_text(encoding='utf-8'))
-V = json.loads((here / 'verify.json').read_text(encoding='utf-8'))
-C = json.loads((here / 'console.json').read_text(encoding='utf-8'))
-def ok(b): return 'O' if b else 'X'
+
+S = json.loads((here / "static.json").read_text(encoding="utf-8"))
+V = json.loads((here / "verify.json").read_text(encoding="utf-8"))
+C = json.loads((here / "console.json").read_text(encoding="utf-8"))
+
+
+def ok(b):
+    return "O" if b else "X"
+
 
 rows, cov, gal, sections = [], [], [], []
 for k in order:
-    if k not in S: continue
-    s = S[k]; v = V.get(k, {}); q = v.get('quality', {}); cv = q.get('canvases', [])
-    ef = s['edge_features']; tf = s['text_features']
-    fill = ' / '.join(str(c['fill']) for c in cv) or '-'; mf = ' / '.join(str(c['minFont']) for c in cv) or '-'
-    conv = s['edges_bad_ref'] == 0 and s['dup_ids'] == 0 and s['nodes_without_id'] == 0 and s['nodes_missing_inline_pos'] == 0
-    punct = s['dashes'] == 0 and s['emoji'] == 0
-    drag = v.get('drag', {}); con = C.get(k)
-    rows.append(f"| {names[k]} | {EFFORT.get(k, '-')} | {s['canvases']} | {s['nodes']} | {s['edges']} | {fill} | {mf} | "
-                f"{ok(s['engine_css_ok'] and s['engine_js_ok'])} | {ok(conv)} | {ok(punct)} | {ok(q.get('pass'))} | "
-                f"{ok(con == 0) if con is not None else '-'} | {ok(drag.get('moved') and drag.get('edgeFollowed')) if drag.get('node') else '-'} |")
-    cov.append(f"| {names[k]} | {ok(ef.get('solid', 0) > 0)} | {ok('dashed' in ef['styles'])} | {ok('dotted' in ef['styles'])} | "
-               f"{ok('both' in ef['arrows'])} | {ok('none' in ef['arrows'])} | {ok(ef['curve'] > 0)} | {ok(ef['opacity'] > 0)} | {ok(ef['flow'] > 0)} | "
-               f"{ok(ef['side_anchor'] > 0)} | {ok(ef['ratio_anchor'] > 0)} | {ok(ef['coord_end'] > 0)} | {ok(ef['label'] > 0)} | "
-               f"{ok(tf['table'] > 0)} | {ok(tf['list'] > 0)} | {ok(tf['blockquote'] > 0)} | {ok(tf['svg_icons'] > 0)} | {ok(tf['round_nodes'] > 0)} |")
-    jpgs = ['shots-jpg/' + pathlib.Path(p).stem + '.jpg' for p in v.get('shots_local', []) if (here / 'shots-jpg' / (pathlib.Path(p).stem + '.jpg')).exists()]
-    if jpgs: gal.append((k, jpgs[0]))
-    if (here / 'shots-jpg' / f'{k}-full.jpg').exists(): jpgs = [f'shots-jpg/{k}-full.jpg']   # 한 장으로 이어 붙인 전체 스크린샷
-    links = f"[poster.html]({k}/poster.html)" + (f" · [report.md]({k}/report.md)" if (here / k / 'report.md').exists() else '')
-    sections.append(f"### {names[k]}\n\n{links}\n\n{NOTES.get(k, '')}\n\n" + '\n'.join(f'<img src="{j}" width="900">' for j in jpgs) + '\n')
+    if k not in S:
+        continue
+    s = S[k]
+    v = V.get(k, {})
+    q = v.get("quality", {})
+    cv = q.get("canvases", [])
+    ef = s["edge_features"]
+    tf = s["text_features"]
+    fill = f"v{q.get('version', 1)}: " + (" / ".join(str(c.get("fill", "-")) for c in cv) or "-")
+    mf = " / ".join(str(c.get("minFont", "-")) for c in cv) or "-"
+    conv = (
+        s["edges_bad_ref"] == 0
+        and s["dup_ids"] == 0
+        and s["nodes_without_id"] == 0
+        and s["nodes_missing_inline_pos"] == 0
+    )
+    punct = s["dashes"] == 0 and s["emoji"] == 0
+    drag = v.get("drag", {})
+    con = C.get(k)
+    rows.append(
+        f"| {names[k]} | {EFFORT.get(k, '-')} | {s['canvases']} | {s['nodes']} | {s['edges']} | {fill} | {mf} | "
+        f"{ok(s['engine_css_ok'] and s['engine_js_ok'])} | {ok(conv)} | {ok(punct)} | {ok(q.get('pass'))} | "
+        f"{ok(con == 0) if con is not None else '-'} | {ok(drag.get('moved') and drag.get('edgeFollowed')) if drag.get('node') else '-'} |"
+    )
+    cov.append(
+        f"| {names[k]} | {ok(ef.get('solid', 0) > 0)} | {ok('dashed' in ef['styles'])} | {ok('dotted' in ef['styles'])} | "
+        f"{ok('both' in ef['arrows'])} | {ok('none' in ef['arrows'])} | {ok(ef['curve'] > 0)} | {ok(ef['opacity'] > 0)} | {ok(ef['flow'] > 0)} | "
+        f"{ok(ef['side_anchor'] > 0)} | {ok(ef['ratio_anchor'] > 0)} | {ok(ef['coord_end'] > 0)} | {ok(ef['label'] > 0)} | "
+        f"{ok(tf['table'] > 0)} | {ok(tf['list'] > 0)} | {ok(tf['blockquote'] > 0)} | {ok(tf['svg_icons'] > 0)} | {ok(tf['round_nodes'] > 0)} |"
+    )
+    jpgs = [
+        "shots-jpg/" + pathlib.Path(p).stem + ".jpg"
+        for p in v.get("shots_local", [])
+        if (here / "shots-jpg" / (pathlib.Path(p).stem + ".jpg")).exists()
+    ]
+    if jpgs:
+        gal.append((k, jpgs[0]))
+    if (here / "shots-jpg" / f"{k}-full.jpg").exists():
+        jpgs = [f"shots-jpg/{k}-full.jpg"]  # 한 장으로 이어 붙인 전체 스크린샷
+    links = f"[poster.html]({k}/poster.html)" + (
+        f" · [report.md]({k}/report.md)" if (here / k / "report.md").exists() else ""
+    )
+    sections.append(
+        f"### {names[k]}\n\n{links}\n\n{NOTES.get(k, '')}\n\n"
+        + "\n".join(f'<img src="{j}" width="900">' for j in jpgs)
+        + "\n"
+    )
 
-H1 = "| 모델 | 생각 강도 | 캔버스 | 노드 | 엣지 | 격자 점유율(%) | 최소 글자(px) | 엔진 무결 | 규약 | 문장부호 | 품질 스니펫 | 콘솔 0건 | 드래그 추종 |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|\n"
+H1 = "| 모델 | 생각 강도 | 캔버스 | 노드 | 엣지 | 점유율(%, 검사기 버전) | 최소 글자(px) | 엔진 무결 | 규약 | 문장부호 | 품질 스니펫 | 콘솔 0건 | 드래그 추종 |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|\n"
+QUALITY_NOTE = "v1 점유율은 배경판을 포함한 과거 값이다. v2는 배경 제외·실제 노드 면적·빈 공간·크기 등을 검사한다. 과거 통과는 현행 품질 합격의 근거가 아니다."
 H2 = "| 모델 | 실선 | 파선 | 점선 | both | none | 곡률 | 투명도 | 흐름 | 측면 앵커 | 비율 앵커 | 좌표 끝점 | 라벨 | 표 | 목록 | 인용 | SVG 아이콘 | 원형 노드 |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n"
-notes_md = '\n'.join(f"- **{names[k]}**: {NOTES[k]}" for k in order if NOTES.get(k) and k in S)
+notes_md = "\n".join(f"- **{names[k]}**: {NOTES[k]}" for k in order if NOTES.get(k) and k in S)
+
+
 def gallery(prefix):
-    cells = [f'<td align="center"><a href="{prefix}{k}/poster.html"><img src="{prefix}{j}" width="440"></a><br><sub>{names[k]}</sub></td>' for k, j in gal]
-    trs = ''.join('<tr>' + ''.join(cells[i:i + 2]) + '</tr>' for i in range(0, len(cells), 2))
-    return f'<table>{trs}</table>'
+    cells = [
+        f'<td align="center"><a href="{prefix}{k}/poster.html"><img src="{prefix}{j}" width="440"></a><br><sub>{names[k]}</sub></td>'
+        for k, j in gal
+    ]
+    trs = "".join("<tr>" + "".join(cells[i : i + 2]) + "</tr>" for i in range(0, len(cells), 2))
+    return f"<table>{trs}</table>"
+
 
 cmp_md = f"""# 모델 비교: 기능 샘플러 포스터
 
@@ -62,6 +105,8 @@ cmp_md = f"""# 모델 비교: 기능 샘플러 포스터
 생각 강도는 따로 지정하지 않아 기본값이 적용됐습니다. Claude 쪽은 max, Codex 쪽은 xhigh라 조건이 완전히 같지는 않습니다.
 
 ## 결과
+
+{QUALITY_NOTE}
 
 {H1}{chr(10).join(rows)}
 
@@ -91,10 +136,12 @@ Codex 실행 시 주의: 백그라운드에서 돌리면 stdin을 닫아야 하�
 ## 모델별 스크린샷
 
 {chr(10).join(sections)}"""
-(here / 'README.md').write_text(cmp_md, encoding='utf-8')
+(here / "README.md").write_text(cmp_md, encoding="utf-8")
 
 root_block = f"""<!-- RESULTS:START -->
 같은 브리프로 일곱 모델이 만든 기능 샘플러 포스터를 같은 하네스로 검사한 결과입니다. 브라우저 판정(품질 스니펫, 콘솔, 드래그)은 전부 하네스가 수행했습니다. 조건, 커버리지, 전체 스크린샷은 [compare/README.md](compare/README.md)에 있습니다.
+
+{QUALITY_NOTE}
 
 {H1}{chr(10).join(rows)}
 
@@ -104,13 +151,17 @@ O 통과 · X 실패 · 격자 점유율과 최소 글자는 캔버스별 값.
 
 {CAVEAT}
 
-{gallery('compare/')}
+{gallery("compare/")}
 <!-- RESULTS:END -->"""
-rp = root / 'README.md'; rt = rp.read_text(encoding='utf-8')
-if '<!-- RESULTS:START -->' in rt:
-    rt = re.sub(r'<!-- RESULTS:START -->.*?<!-- RESULTS:END -->', lambda m: root_block, rt, flags=re.S)
+rp = root / "README.md"
+rt = rp.read_text(encoding="utf-8")
+if "<!-- RESULTS:START -->" in rt:
+    rt = re.sub(
+        r"<!-- RESULTS:START -->.*?<!-- RESULTS:END -->", lambda m: root_block, rt, flags=re.S
+    )
 else:
-    m = re.search(r'## 모델 비교\n(.*?)(?=\n## )', rt, re.S); assert m, '루트 README에 "## 모델 비교" 절이 없음'
-    rt = rt[:m.start()] + '## 모델 비교\n\n' + root_block + '\n' + rt[m.end():]
-rp.write_text(rt, encoding='utf-8')
-print('compare/README.md and root README results block written')
+    m = re.search(r"## 모델 비교\n(.*?)(?=\n## )", rt, re.S)
+    assert m, '루트 README에 "## 모델 비교" 절이 없음'
+    rt = rt[: m.start()] + "## 모델 비교\n\n" + root_block + "\n" + rt[m.end() :]
+rp.write_text(rt, encoding="utf-8")
+print("compare/README.md and root README results block written")

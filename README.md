@@ -46,7 +46,7 @@ Codex에는 브라우저 도구가 없으므로 SKILL.md는 그 경우 `assets/s
 | `assets/fig-editor.js`, `assets/fig-editor.css` | 편집 엔진(문서에 인라인됨) |
 | `assets/template.html` | 산출물의 출발점. 복사한 뒤 `<title>`, 첫 `<style>`, `FIG:CONTENT` 영역만 작성 |
 | `assets/template-skeleton.html`, `assets/build-template.py` | 엔진을 인라인해 템플릿과 예시를 조립 |
-| `assets/quality-check.js` | 품질 검사(글자 하한 12px, 격자 점유율 75%) |
+| `assets/quality-check.js` | v2 품질 하한 검사(배경 제외 점유율·노드 밀도·큰 빈 영역·비율·외곽 여백·글자 하한 12px, 인포그래픽/네트워크 정책) |
 | `assets/static-check.py` | 브라우저 없는 환경용 정적 검사 |
 | `assets/export-static.py` | 배포용 정적 HTML 내보내기(편집기 제거, 헤드리스 Chrome) |
 | `assets/tests/` | 엔진 회귀 테스트(`run.sh`, Aside 브라우저 CLI 필요) |
@@ -66,12 +66,16 @@ Codex에는 브라우저 도구가 없으므로 SKILL.md는 그 경우 `assets/s
 
 ## 검증
 
-산출물마다 브라우저에서 세 가지를 확인합니다: 콘솔 오류·경고 0, `assets/quality-check.js`가 `pass:true`, 편집 모드에서 노드를 끌면 화살표가 따라옴. 엔진을 고쳤을 때는 `python3 assets/build-template.py`로 템플릿과 예시를 재생성하고 `bash assets/tests/run.sh`로 회귀 테스트를 돌립니다.
+산출물마다 브라우저에서 콘솔 오류·경고 0, `assets/quality-check.js`의 `pass:true`, 편집 모드의 노드 드래그와 화살표 추종을 확인합니다. 수치 통과는 시각적 승인이 아닙니다. 데스크톱·모바일 화면에서 가독성·겹침·잘림·배치 균형도 확인합니다.
+
+v2는 `.zone`, `data-fig-decoration`, `data-fig-role="background"` 노드의 면적을 제외합니다. 실제 노드 면적은 직사각형 합집합으로 계산하고, 큰 빈 영역은 링크로 가리지 않습니다. 실제 네트워크 구조도는 캔버스에 `data-fig-quality="network"`를 명시합니다. 크기·세로 적층·텍스트 및 포트 수요도 검사합니다. 정책별 수치와 근거는 `SKILL.md`를 단일 기준으로 따릅니다. 링크는 모두 집계하며 길이에 맞춰 샘플링합니다.
+
+품질 하네스 회귀 테스트는 `node --test assets/tests/quality-check.test.cjs`로 실행합니다. 엔진을 고쳤을 때는 `python3 assets/build-template.py`로 템플릿과 예시를 재생성하고 `bash assets/tests/run.sh`로 엔진 회귀 테스트를 돌립니다.
 
 ## 모델 비교
 
 <!-- RESULTS:START -->
-같은 브리프로 일곱 모델이 만든 기능 샘플러 포스터를 같은 하네스로 검사한 결과입니다. 브라우저 판정(품질 스니펫, 콘솔, 드래그)은 전부 하네스가 수행했습니다. 조건, 커버리지, 전체 스크린샷은 [compare/README.md](compare/README.md)에 있습니다.
+아래는 **이전 v1 하네스의 역사적 비교 결과**입니다. v1은 배경판을 점유율에 포함했으므로 100%와 통과 표시는 현재의 내용 밀도나 v2 통과를 증명하지 않습니다. 같은 브리프로 일곱 모델이 만든 기능 샘플러 포스터를 당시 같은 하네스로 검사했습니다. 브라우저 판정(품질 스니펫, 콘솔, 드래그)은 당시 하네스가 수행했습니다. 조건, 커버리지, 전체 스크린샷은 [compare/README.md](compare/README.md)에 있습니다.
 
 | 모델 | 생각 강도 | 캔버스 | 노드 | 엣지 | 격자 점유율(%) | 최소 글자(px) | 엔진 무결 | 규약 | 문장부호 | 품질 스니펫 | 콘솔 0건 | 드래그 추종 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -93,7 +97,7 @@ O 통과 · X 실패 · 격자 점유율과 최소 글자는 캔버스별 값.
 - **GPT-5.6 sol**: 짙은 청록 편집 디자인 톤이 독자적이고 라벨 배치가 깔끔하다. 노드가 1인칭으로 자기를 설명하는 구성. 인라인 SVG 아이콘은 쓰지 않았다. 왕복 화살표의 곡률 규칙을 정확히 적었다.
 - **GPT-5.6 astra**: 사용자가 Codex CLI로 xhigh에서 직접 실행. 캔버스 폭 1280을 택했고 속성마다 카드 안 미니 도식으로 보여 준다. 왕복 화살표를 서로 다른 비율 앵커와 같은 곡률로 정확히 분리했고, 곡률·앵커·좌표 끝점 카드가 특히 명확하다. 반투명 카드 뒤의 설명 글자 일부가 카드에 가려진다.
 
-격자 점유율은 노드나 화살표가 지나는 40px 칸의 비율이라, 전폭 배경판 노드 하나로도 100%가 된다. 점유율 100%는 밀도가 아니라 배경판 사용을 뜻할 수 있다.
+위 표의 v1 격자 점유율은 전폭 배경판 하나로도 100%가 됐습니다. 현재 v2는 의미를 명시한 배경판을 제외하고 내용 밀도와 빈 공간을 따로 검사합니다. 위 산출물을 v2로 다시 검사한 결과는 아닙니다.
 
 <table><tr><td align="center"><a href="compare/fable51/poster.html"><img src="compare/shots-jpg/fable51-0.jpg" width="440"></a><br><sub>Claude Fable 5.1 (기준)</sub></td><td align="center"><a href="compare/opus5/poster.html"><img src="compare/shots-jpg/opus5-0.jpg" width="440"></a><br><sub>Claude Opus 5</sub></td></tr><tr><td align="center"><a href="compare/sonnet5/poster.html"><img src="compare/shots-jpg/sonnet5-0.jpg" width="440"></a><br><sub>Claude Sonnet 5</sub></td><td align="center"><a href="compare/gpt56-luna/poster.html"><img src="compare/shots-jpg/gpt56-luna-0.jpg" width="440"></a><br><sub>GPT-5.6 luna</sub></td></tr><tr><td align="center"><a href="compare/gpt56-terra/poster.html"><img src="compare/shots-jpg/gpt56-terra-0.jpg" width="440"></a><br><sub>GPT-5.6 terra</sub></td><td align="center"><a href="compare/gpt56-sol/poster.html"><img src="compare/shots-jpg/gpt56-sol-0.jpg" width="440"></a><br><sub>GPT-5.6 sol</sub></td></tr><tr><td align="center"><a href="compare/gpt56-astra/poster.html"><img src="compare/shots-jpg/gpt56-astra-0.jpg" width="440"></a><br><sub>GPT-5.6 astra</sub></td></tr></table>
 <!-- RESULTS:END -->
